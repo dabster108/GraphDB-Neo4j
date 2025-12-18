@@ -1,6 +1,23 @@
+from graphdb import Neo4jConnection
+
 def main():
-    print("Hello from graph-db-python!")
+    # Create connection instance
+    db = Neo4jConnection()
+    
+    try:
+        db.connect()
+        db.create_user("Dikshanta", 25)
+        db.create_user("Jijash", 30)
+        
+        print("\nTwo users created successfully!")
+        
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":
     main()
+
