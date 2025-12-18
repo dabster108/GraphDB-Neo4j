@@ -6,12 +6,12 @@
 # Properties are key-value pair used for storing data on nodes 
 # Properties can hold different data such as number, string, boolean 
 
-from neo4j import GraphDatabase
 import os
 from dotenv import load_dotenv
+from neo4j import GraphDatabase
+
 # Load environment variables from .env file
 load_dotenv()
-
 class Neo4jConnection:
     def __init__(self, database="neo4j"):
         self.uri = os.getenv("NEO4J_URI")
