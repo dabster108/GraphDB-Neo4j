@@ -1,6 +1,5 @@
 import sys
 import os
-import json
 # Add src directory to path to import graphdb
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src'))
 
@@ -13,15 +12,7 @@ class StudentService:
     def __init__(self):
         self.db = Neo4jConnection()
         self.db.connect()
-        # Path to students.json file
-        self.resources_dir = os.path.join(os.path.dirname(__file__), '../resources')
-        self.students_json_path = os.path.join(self.resources_dir, 'students.json')
-        
-        # Ensure resources directory exists
-        os.makedirs(self.resources_dir, exist_ok=True)
-        
-        # Sync JSON data to Neo4j on initialization
-        self._sync_json_to_neo4j()
+        # Rely on Neo4j as the single source of truth for Student data
 
     def __del__(self):
         if hasattr(self, 'db'):
@@ -32,6 +23,14 @@ class StudentService:
         Save a student to Neo4j and students.json file.
         Returns the auto-incremented student id.
         """
+        # use raw incoming values (no normalization), store as provided
+        name = student.name
+        address = student.address
+        college = student.college
+        board = student.board
+        stream = student.stream
+        interests = student.interests or []
+
         with self.db.driver.session(database=self.db.database) as session:
             # Get the next available student id
             result = session.run(
@@ -40,7 +39,7 @@ class StudentService:
             record = result.single()
             next_id = (record["max_id"] or 0) + 1
 
-            # Create the student node in Neo4j
+            # Create the student node in Neo4j using normalized properties
             session.run(
                 """
                 CREATE (s:Student {
@@ -55,100 +54,69 @@ class StudentService:
                 RETURN s.id as id
                 """,
                 id=next_id,
-                name=student.name,
-                address=student.address,
-                college=student.college,
-                board=student.board,
-                stream=student.stream,
-                interests=student.interests
+                name=name,
+                address=address,
+                college=college,
+                board=board,
+                stream=stream,
+                interests=interests
             )
 
-        # Save to JSON file
-        self._save_to_json(next_id, student)
-        
+            # Create idempotent relationships so the graph shows connections immediately
+            # SAME_COLLEGE
+            session.run(
+                """
+                MATCH (s:Student {id: $id}), (o:Student)
+                WHERE o.id <> $id AND s.college IS NOT NULL AND s.college = o.college
+                MERGE (s)-[:SAME_COLLEGE]->(o)
+                """,
+                id=next_id
+            )
+
+            # SAME_BOARD
+            session.run(
+                """
+                MATCH (s:Student {id: $id}), (o:Student)
+                WHERE o.id <> $id AND s.board IS NOT NULL AND s.board = o.board
+                MERGE (s)-[:SAME_BOARD]->(o)
+                """,
+                id=next_id
+            )
+
+            # SAME_STREAM
+            session.run(
+                """
+                MATCH (s:Student {id: $id}), (o:Student)
+                WHERE o.id <> $id AND s.stream IS NOT NULL AND s.stream = o.stream
+                MERGE (s)-[:SAME_STREAM]->(o)
+                """,
+                id=next_id
+            )
+
+            # NEARBY (same address)
+            session.run(
+                """
+                MATCH (s:Student {id: $id}), (o:Student)
+                WHERE o.id <> $id AND s.address IS NOT NULL AND s.address = o.address
+                MERGE (s)-[:NEARBY]->(o)
+                """,
+                id=next_id
+            )
+
+            # SHARES_INTEREST (attach common interests list)
+            session.run(
+                """
+                MATCH (s:Student {id: $id}), (o:Student)
+                WHERE o.id <> $id AND any(x IN s.interests WHERE x IN o.interests)
+                MERGE (s)-[r:SHARES_INTEREST]->(o)
+                SET r.common = [x IN s.interests WHERE x IN o.interests]
+                """,
+                id=next_id
+            )
+
         return next_id
 
-    def _save_to_json(self, student_id: int, student: StudentCreate):
-        students = []
-        if os.path.exists(self.students_json_path):
-            try:
-                with open(self.students_json_path, 'r', encoding='utf-8') as f:
-                    students = json.load(f)
-            except (json.JSONDecodeError, IOError):
-                students = []
-        
-        # Create student data dictionary
-        student_data = {
-            "id": student_id,
-            "name": student.name,
-            "address": student.address,
-            "college": student.college,
-            "board": student.board,
-            "stream": student.stream,
-            "interests": student.interests
-        }
-        
-       
-        existing_index = next((i for i, s in enumerate(students) if s.get("id") == student_id), None)
-        if existing_index is not None:
-            students[existing_index] = student_data
-        else:
-            students.append(student_data)
-        
-        with open(self.students_json_path, 'w', encoding='utf-8') as f:
-            json.dump(students, f, indent=2, ensure_ascii=False)
-
-    def _sync_json_to_neo4j(self):
-        """
-        Sync all students from students.json to Neo4j database.
-        This ensures that any manually added students in JSON are also in Neo4j.
-        """
-        if not os.path.exists(self.students_json_path):
-            return
-        
-        try:
-            with open(self.students_json_path, 'r', encoding='utf-8') as f:
-                students = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            return
-        
-        with self.db.driver.session(database=self.db.database) as session:
-            for student_data in students:
-                # Check if student already exists in Neo4j
-                result = session.run(
-                    "MATCH (s:Student {id: $id}) RETURN s.id as id",
-                    id=student_data.get("id")
-                )
-                existing = result.single()
-                
-                # Only create if it doesn't exist
-                if not existing:
-                    session.run(
-                        """
-                        CREATE (s:Student {
-                            id: $id,
-                            name: $name,
-                            address: $address,
-                            college: $college,
-                            board: $board,
-                            stream: $stream,
-                            interests: $interests
-                        })
-                        """,
-                        id=student_data.get("id"),
-                        name=student_data.get("name"),
-                        address=student_data.get("address"),
-                        college=student_data.get("college"),
-                        board=student_data.get("board"),
-                        stream=student_data.get("stream"),
-                        interests=student_data.get("interests", [])
-                    )
-
-    def sync_json_to_neo4j(self):
-        """
-        Public method to sync JSON to Neo4j (can be called from routes).
-        """
-        self._sync_json_to_neo4j()
+    # JSON file persistence removed — Neo4j is the single source of truth
 
     def get_student_by_id(self, student_id: int) -> Optional[StudentDetail]:
         """
@@ -168,20 +136,6 @@ class StudentService:
             record = result.single()
 
             if not record:
-                # Try syncing from JSON then retry
-                self._sync_json_to_neo4j()
-                result = session.run(
-                    """
-                    MATCH (s:Student {id: $student_id})
-                    RETURN s.id as id, s.name as name, s.address as address,
-                           s.college as college, s.board as board, s.stream as stream,
-                           s.interests as interests
-                    """,
-                    student_id=student_id
-                )
-                record = result.single()
-
-            if not record:
                 return None
 
             return StudentDetail(
@@ -199,91 +153,58 @@ class StudentService:
         Recommend students based on OR logic - match if ANY attribute matches.
         Returns list of recommended students with matched fields.
         """
+        # Compute matches case-insensitively and include interest overlaps
         with self.db.driver.session(database=self.db.database) as session:
-            # First, check if student exists
-            current_student_result = session.run(
-                """
-                MATCH (s:Student {id: $student_id})
-                RETURN s.board as board, s.stream as stream, s.college as college,
-                       s.address as address, s.interests as interests
-                """,
+            # ensure the student exists
+            exists = session.run(
+                "MATCH (s:Student {id: $student_id}) RETURN s.id AS id",
                 student_id=student_id
-            )
-            current_record = current_student_result.single()
-            
-            if not current_record:
-                # Student not found in Neo4j - try syncing from JSON first
-                self._sync_json_to_neo4j()
-                # Try again after sync
-                current_student_result = session.run(
-                    """
-                    MATCH (s:Student {id: $student_id})
-                    RETURN s.board as board, s.stream as stream, s.college as college,
-                           s.address as address, s.interests as interests
-                    """,
-                    student_id=student_id
-                )
-                current_record = current_student_result.single()
-                if not current_record:
-                    return []
+            ).single()
+            if not exists:
+                return []
 
-            current_board = current_record["board"]
-            current_stream = current_record["stream"]
-            current_college = current_record["college"]
-            current_address = current_record["address"]
-            current_interests = current_record["interests"] or []
+            q = """
+            MATCH (s:Student {id: $student_id})
+            MATCH (o:Student)
+            WHERE o.id <> $student_id
+            WITH s,o,
+              (CASE WHEN toLower(coalesce(o.board, '')) = toLower(coalesce(s.board, '')) THEN 1 ELSE 0 END) AS bm,
+              (CASE WHEN toLower(coalesce(o.stream, '')) = toLower(coalesce(s.stream, '')) THEN 1 ELSE 0 END) AS sm,
+              (CASE WHEN toLower(coalesce(o.college, '')) = toLower(coalesce(s.college, '')) THEN 1 ELSE 0 END) AS cm,
+              (CASE WHEN toLower(coalesce(o.address, '')) = toLower(coalesce(s.address, '')) THEN 1 ELSE 0 END) AS am,
+              [x IN coalesce(o.interests, []) WHERE x IN coalesce(s.interests, [])] AS matching_interests
+            WITH o, bm, sm, cm, am, matching_interests, (bm + sm + cm + am + size(matching_interests)) AS score
+            WHERE score > 0
+            RETURN o.id AS id, o.name AS name, o.address AS address, o.interests AS interests,
+                   bm AS board_match, sm AS stream_match, cm AS college_match, am AS address_match,
+                   matching_interests AS matching_interests, score
+            ORDER BY score DESC
+            """
 
-
-            result = session.run(
-                """
-                MATCH (s:Student)
-                WHERE s.id <> $student_id
-                RETURN s.id as id, s.name as name, s.board as board, 
-                       s.stream as stream, s.college as college,
-                       s.address as address, s.interests as interests
-                """,
-                student_id=student_id
-            )
-
-            recommendations = []
-            for record in result:
+            result = session.run(q, student_id=student_id)
+            recommendations: List[StudentResponse] = []
+            for rec in result:
                 matched_fields = []
-                same_address = False
-                matching_interests_list = []
-                
-                # Check board match
-                if record["board"] == current_board:
+                if rec["board_match"]:
                     matched_fields.append("board")
-                
-                # Check stream match
-                if record["stream"] == current_stream:
+                if rec["stream_match"]:
                     matched_fields.append("stream")
-                
-                # Check college match
-                if record["college"] == current_college:
+                if rec["college_match"]:
                     matched_fields.append("college")
-                
-                # Check address match (same location)
-                if record["address"] == current_address:
+                if rec["address_match"]:
                     matched_fields.append("address")
-                    same_address = True
-                
-                # Check interests match (find common interests)
-                other_interests = record["interests"] or []
-                matching_interests_list = [interest for interest in other_interests if interest in current_interests]
-                if matching_interests_list:
+
+                matching_interests = rec.get("matching_interests") or []
+                if matching_interests:
                     matched_fields.append("interests")
 
-                # Only add if at least one field matched (OR logic)
-                if matched_fields:
-                    recommendations.append(StudentResponse(
-                        id=record["id"],
-                        name=record["name"],
-                        address=record["address"],
-                        matched_on=matched_fields,
-                        matching_interests=matching_interests_list if matching_interests_list else None,
-                        same_address=same_address
-                    ))
+                recommendations.append(StudentResponse(
+                    id=rec["id"],
+                    name=rec["name"],
+                    address=rec.get("address"),
+                    matched_on=matched_fields,
+                    matching_interests=matching_interests if matching_interests else None,
+                    same_address=bool(rec.get("address_match"))
+                ))
 
             return recommendations
-

@@ -24,15 +24,9 @@ async def onboard_student(student: StudentCreate):
 
 @router.get("/recommend/people/{student_id}", response_model=RecommendationResponse)
 async def recommend_people(student_id: int):
-    """
-    Get recommended students for a given student_id.
-    Returns students who match on at least one attribute (OR logic).
-    Includes a human-readable message listing all matched students.
-    """
     try:
         recommendations = student_service.recommend_people(student_id)
         
-        # Create human-readable message
         if not recommendations:
             message = "No matching students found in this platform."
         else:
@@ -42,7 +36,6 @@ async def recommend_people(student_id: int):
             elif len(names) == 2:
                 message = f"{names[0]} and {names[1]} are also in this platform."
             else:
-                # Format: "Pragya, Siddharth, and Nabin are also in this platform"
                 all_but_last = ", ".join(names[:-1])
                 last_name = names[-1]
                 message = f"{all_but_last}, and {last_name} are also in this platform."
@@ -54,21 +47,6 @@ async def recommend_people(student_id: int):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting recommendations: {str(e)}")
-
-
-@router.post("/sync", response_model=dict)
-async def sync_json_to_neo4j():
-    """
-    Manually sync all students from students.json to Neo4j database.
-    Useful if you've manually added students to the JSON file.
-    """
-    try:
-        student_service.sync_json_to_neo4j()
-        return {
-            "message": "Successfully synced students from JSON to Neo4j"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error syncing students: {str(e)}")
 
 
 
