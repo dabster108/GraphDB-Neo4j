@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Form
+from typing import List
 from models.student import StudentCreate, RecommendationResponse, StudentDetail
 from services.student_service import StudentService
 
@@ -7,13 +8,28 @@ router = APIRouter(prefix="/api/v1", tags=["students"])
 student_service = StudentService()
 
 @router.post("/onboard", response_model=dict)
-async def onboard_student(student: StudentCreate):
+async def onboard_student(
+    name: str = Form(..., example="Aayush"),
+    address: str = Form(..., example="Lalitpur"),
+    college: str = Form(..., example="St. Xavier College"),
+    board: str = Form(..., example="Nepal Board"),
+    stream: str = Form(..., example="Science"),
+    interests: List[str] = Form(..., example=["math", "programming"]),
+):
     """
     Onboard a new student to the system.
     Creates a Student node in Neo4j with auto-incremented id.
     """
     try:
-        student_id = student_service.save_student(student)
+        student_obj = StudentCreate(
+            name=name,
+            address=address,
+            college=college,
+            board=board,
+            stream=stream,
+            interests=interests,
+        )
+        student_id = student_service.save_student(student_obj)
         return {
             "message": "Student onboarded successfully",
             "student_id": student_id
@@ -28,7 +44,7 @@ async def recommend_people(student_id: int):
         recommendations = student_service.recommend_people(student_id)
         
         if not recommendations:
-            message = "No matching students found in this platform."
+            message = "Match not found."
         else:
             names = [rec.name for rec in recommendations]
             if len(names) == 1:
