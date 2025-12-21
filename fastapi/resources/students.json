@@ -1,0 +1,272 @@
+[
+  {
+    "id": 1,
+    "name": "Dikshanta",
+    "address": "Budhanilkantha",
+    "college": "Softwarica College",
+    "board": "BSc Computer Science",
+    "stream": "AI",
+    "interests": ["FIFA26", "Machine Learning"]
+  },
+  {
+    "id": 2,
+    "name": "Aayush",
+    "address": "Lalitpur",
+    "college": "Islington College",
+    "board": "+2 Science",
+    "stream": "Computer Science",
+    "interests": ["Gaming", "Python"]
+  },
+  {
+    "id": 3,
+    "name": "Sujan",
+    "address": "Baneshwor",
+    "college": "Trinity International College",
+    "board": "+2 Management",
+    "stream": "Business Studies",
+    "interests": ["Entrepreneurship", "Marketing"]
+  },
+  {
+    "id": 4,
+    "name": "Ritika",
+    "address": "Pokhara",
+    "college": "Pokhara University",
+    "board": "BBA",
+    "stream": "Management",
+    "interests": ["Finance", "Public Speaking"]
+  },
+  {
+    "id": 5,
+    "name": "Nishant",
+    "address": "Dharan",
+    "college": "IOE Pulchowk",
+    "board": "BE Computer",
+    "stream": "Software Engineering",
+    "interests": ["Web Development", "Algorithms"]
+  },
+  {
+    "id": 6,
+    "name": "Anusha",
+    "address": "Bhaktapur",
+    "college": "St. Xavier’s College",
+    "board": "+2 Science",
+    "stream": "Biology",
+    "interests": ["Research", "Health Tech"]
+  },
+  {
+    "id": 7,
+    "name": "Bibek",
+    "address": "Chitwan",
+    "college": "Kathmandu University",
+    "board": "BSc Computer Science",
+    "stream": "Data Science",
+    "interests": ["Data Analysis", "Visualization"]
+  },
+  {
+    "id": 8,
+    "name": "Suman",
+    "address": "Itahari",
+    "college": "Himalaya College of Engineering",
+    "board": "BE Electronics",
+    "stream": "Electronics",
+    "interests": ["IoT", "Robotics"]
+  },
+  {
+    "id": 9,
+    "name": "Kritika",
+    "address": "Bharatpur",
+    "college": "Global College",
+    "board": "BCA",
+    "stream": "Computer Applications",
+    "interests": ["UI/UX", "Design"]
+  },
+  {
+    "id": 10,
+    "name": "Rohan",
+    "address": "Kalanki",
+    "college": "Deerwalk Institute of Technology",
+    "board": "BSc CSIT",
+    "stream": "Networking",
+    "interests": ["Cyber Security", "Linux"]
+  },
+  {
+    "id": 11,
+    "name": "Pragya",
+    "address": "Koteshwor",
+    "college": "Softwarica College",
+    "board": "BSc Computing",
+    "stream": "AI",
+    "interests": ["Deep Learning", "Python"]
+  },
+  {
+    "id": 12,
+    "name": "Sagar",
+    "address": "Hetauda",
+    "college": "Orchid International College",
+    "board": "BIM",
+    "stream": "Information Management",
+    "interests": ["Project Management", "SQL"]
+  },
+  {
+    "id": 13,
+    "name": "Manisha",
+    "address": "Putalisadak",
+    "college": "Ace Institute of Management",
+    "board": "BBA",
+    "stream": "Marketing",
+    "interests": ["Digital Marketing", "Content Creation"]
+  },
+  {
+    "id": 14,
+    "name": "Ritesh",
+    "address": "Butwal",
+    "college": "Lumbini ICT Campus",
+    "board": "BSc CSIT",
+    "stream": "Software Development",
+    "interests": ["Java", "Spring Boot"]
+  },
+  {
+    "id": 15,
+    "name": "Smriti",
+    "address": "Janakpur",
+    "college": "Janaki Medical College",
+    "board": "MBBS",
+    "stream": "Medical",
+    "interests": ["Healthcare", "Medical AI"]
+  },
+  {
+    "id": 16,
+    "name": "Kiran",
+    "address": "New Baneshwor",
+    "college": "Herald College",
+    "board": "BSc IT",
+    "stream": "Cloud Computing",
+    "interests": ["AWS", "DevOps"]
+  },
+  {
+    "id": 17,
+    "name": "Pooja",
+    "address": "Gaushala",
+    "college": "Prime College",
+    "board": "BCA",
+    "stream": "Application Development",
+    "interests": ["Android", "Kotlin"]
+  },
+  {
+    "id": 18,
+    "name": "Amit",
+    "address": "Tinkune",
+    "college": "NAMI College",
+    "board": "BSc Computing",
+    "stream": "Cyber Security",
+    "interests": ["Ethical Hacking", "Networks"]
+  },
+  {
+    "id": 19,
+    "name": "Sneha",
+    "address": "Balaju",
+    "college": "Kathford International College",
+    "board": "BE Software",
+    "stream": "Software Engineering",
+    "interests": ["Testing", "Automation"]
+  },
+  {
+    "id": 20,
+    "name": "Roshan",
+    "address": "Imadol",
+    "college": "Texas International College",
+    "board": "+2 Management",
+    "stream": "Hotel Management",
+    "interests": ["Hospitality", "Event Management"]
+  },
+  {
+    "id": 21,
+    "name": "Alisha",
+    "address": "Kirtipur",
+    "college": "Tribhuvan University",
+    "board": "BA",
+    "stream": "Social Science",
+    "interests": ["Research", "Policy"]
+  },
+  {
+    "id": 22,
+    "name": "Nabin",
+    "address": "Tokha",
+    "college": "NCIT",
+    "board": "BE Computer",
+    "stream": "AI",
+    "interests": ["NLP", "LLMs"]
+  },
+  {
+    "id": 23,
+    "name": "Bishal",
+    "address": "Boudha",
+    "college": "Sagarmatha Engineering College",
+    "board": "BE Civil",
+    "stream": "Civil Engineering",
+    "interests": ["AutoCAD", "Project Design"]
+  },
+  {
+    "id": 24,
+    "name": "Shristi",
+    "address": "Sinamangal",
+    "college": "KIST College",
+    "board": "+2 Science",
+    "stream": "Physics",
+    "interests": ["Astronomy", "Research"]
+  },
+  {
+    "id": 25,
+    "name": "Arjun",
+    "address": "Maitidevi",
+    "college": "King’s College",
+    "board": "MBA",
+    "stream": "Entrepreneurship",
+    "interests": ["Startups", "Leadership"]
+  },
+  {
+    "id": 26,
+    "name": "Sabina",
+    "address": "Pepsicola",
+    "college": "Uniglobe College",
+    "board": "+2 Management",
+    "stream": "Accounting",
+    "interests": ["Finance", "Taxation"]
+  },
+  {
+    "id": 27,
+    "name": "Rupesh",
+    "address": "Koteshwor",
+    "college": "Broadway Infosys",
+    "board": "Diploma",
+    "stream": "Full Stack Development",
+    "interests": ["React", "Node.js"]
+  },
+  {
+    "id": 28,
+    "name": "Elina",
+    "address": "Gongabu",
+    "college": "Padma Kanya Campus",
+    "board": "BSc",
+    "stream": "Statistics",
+    "interests": ["Data Science", "R"]
+  },
+  {
+    "id": 29,
+    "name": "Siddharth",
+    "address": "Kupondole",
+    "college": "British College",
+    "board": "BSc Computing",
+    "stream": "AI",
+    "interests": ["Computer Vision", "OpenCV"]
+  },
+  {
+    "id": 30,
+    "name": "Namrata",
+    "address": "Jorpati",
+    "college": "APF School of Nursing",
+    "board": "BSc Nursing",
+    "stream": "Nursing",
+    "interests": ["Public Health", "Community Care"]
+  }
+]
