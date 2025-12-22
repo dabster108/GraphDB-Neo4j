@@ -44,7 +44,7 @@ async def recommend_people(student_id: int):
         recommendations = student_service.recommend_people(student_id)
         
         if not recommendations:
-            message = "Match not found."
+            message = "Sorry, no matches found for this platform."
         else:
             names = [rec.name for rec in recommendations]
             if len(names) == 1:
