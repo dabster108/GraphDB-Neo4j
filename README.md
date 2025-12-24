@@ -2,6 +2,7 @@
 
 
 This project is a simple starting point for learning about graph databases using Python.
+It empowers simple relationship recommendation engine with fastapi as a backend 
 
 ## What is a Graph Database?
 A **graph database** is a type of database that uses graph structures with nodes (entities), edges (relationships), and properties (attributes) to represent and store data. Unlike traditional relational databases, graph databases are optimized for exploring and analyzing relationships between data points. They are especially useful for applications like social networks, recommendation engines, fraud detection, and network analysis.
@@ -64,5 +65,5 @@ A graph database is a type of database that uses graph structures with nodes, ed
 - Explore using libraries like NetworkX or connecting to Neo4j
 
 ---
-Happy learning!
 # GraphDB-Neo4j
+
