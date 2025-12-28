@@ -12,7 +12,6 @@ class StudentService:
     def __init__(self):
         self.db = Neo4jConnection()
         self.db.connect()
-        # Rely on Neo4j as the single source of truth for Student data
 
     def __del__(self):
         if hasattr(self, 'db'):
@@ -20,10 +19,9 @@ class StudentService:
 
     def save_student(self, student: StudentCreate) -> int:
         """
-        Save a student to Neo4j and students.json file.
+        Save a student to Neo4j.
         Returns the auto-incremented student id.
         """
-        # use raw incoming values (no normalization), store as provided
         name = student.name
         address = student.address
         college = student.college
@@ -32,14 +30,12 @@ class StudentService:
         interests = student.interests or []
 
         with self.db.driver.session(database=self.db.database) as session:
-            # Get the next available student id
             result = session.run(
                 "MATCH (s:Student) RETURN MAX(s.id) as max_id"
             )
             record = result.single()
             next_id = (record["max_id"] or 0) + 1
 
-            # Create the student node in Neo4j using normalized properties
             session.run(
                 """
                 CREATE (s:Student {
@@ -62,8 +58,6 @@ class StudentService:
                 interests=interests
             )
 
-            # Create idempotent relationships so the graph shows connections immediately
-            # SAME_COLLEGE
             session.run(
                 """
                 MATCH (s:Student {id: $id}), (o:Student)
@@ -73,7 +67,6 @@ class StudentService:
                 id=next_id
             )
 
-            # SAME_BOARD
             session.run(
                 """
                 MATCH (s:Student {id: $id}), (o:Student)
@@ -83,7 +76,6 @@ class StudentService:
                 id=next_id
             )
 
-            # SAME_STREAM
             session.run(
                 """
                 MATCH (s:Student {id: $id}), (o:Student)
@@ -93,7 +85,6 @@ class StudentService:
                 id=next_id
             )
 
-            # NEARBY (same address)
             session.run(
                 """
                 MATCH (s:Student {id: $id}), (o:Student)
@@ -103,7 +94,6 @@ class StudentService:
                 id=next_id
             )
 
-            # SHARES_INTEREST (attach common interests list)
             session.run(
                 """
                 MATCH (s:Student {id: $id}), (o:Student)
@@ -116,13 +106,7 @@ class StudentService:
 
         return next_id
 
-    # JSON file persistence removed — Neo4j is the single source of truth
-
     def get_student_by_id(self, student_id: int) -> Optional[StudentDetail]:
-        """
-        Retrieve a single student's full details by id.
-        Returns a `StudentDetail` or `None` if not found.
-        """
         with self.db.driver.session(database=self.db.database) as session:
             result = session.run(
                 """
@@ -134,10 +118,8 @@ class StudentService:
                 student_id=student_id
             )
             record = result.single()
-
             if not record:
                 return None
-
             return StudentDetail(
                 id=record["id"],
                 name=record["name"],
@@ -145,20 +127,17 @@ class StudentService:
                 college=record.get("college"),
                 board=record.get("board"),
                 stream=record.get("stream"),
-                interests=record.get("interests") or []
+                interests=record.get("interests") or [],
             )
 
     def recommend_people(self, student_id: int) -> List[StudentResponse]:
         """
-        Recommend students based on OR logic - match if ANY attribute matches.
-        Returns list of recommended students with matched fields.
+        Recommend students based on OR logic - case/space-insensitive comparisons.
         """
-        # Compute matches case-insensitively and include interest overlaps
         with self.db.driver.session(database=self.db.database) as session:
-            # ensure the student exists
             exists = session.run(
                 "MATCH (s:Student {id: $student_id}) RETURN s.id AS id",
-                student_id=student_id
+                student_id=student_id,
             ).single()
             if not exists:
                 return []
@@ -167,12 +146,12 @@ class StudentService:
             MATCH (s:Student {id: $student_id})
             MATCH (o:Student)
             WHERE o.id <> $student_id
-            WITH s,o,
-              (CASE WHEN toLower(coalesce(o.board, '')) = toLower(coalesce(s.board, '')) THEN 1 ELSE 0 END) AS bm,
-              (CASE WHEN toLower(coalesce(o.stream, '')) = toLower(coalesce(s.stream, '')) THEN 1 ELSE 0 END) AS sm,
-              (CASE WHEN toLower(coalesce(o.college, '')) = toLower(coalesce(s.college, '')) THEN 1 ELSE 0 END) AS cm,
-              (CASE WHEN toLower(coalesce(o.address, '')) = toLower(coalesce(s.address, '')) THEN 1 ELSE 0 END) AS am,
-              [x IN coalesce(o.interests, []) WHERE x IN coalesce(s.interests, [])] AS matching_interests
+            WITH s, o,
+              (CASE WHEN toLower(trim(coalesce(o.board, ''))) = toLower(trim(coalesce(s.board, ''))) THEN 1 ELSE 0 END) AS bm,
+              (CASE WHEN toLower(trim(coalesce(o.stream, ''))) = toLower(trim(coalesce(s.stream, ''))) THEN 1 ELSE 0 END) AS sm,
+              (CASE WHEN toLower(trim(coalesce(o.college, ''))) = toLower(trim(coalesce(s.college, ''))) THEN 1 ELSE 0 END) AS cm,
+              (CASE WHEN toLower(trim(coalesce(o.address, ''))) = toLower(trim(coalesce(s.address, ''))) THEN 1 ELSE 0 END) AS am,
+              [x IN coalesce(o.interests, []) WHERE any(y IN coalesce(s.interests, []) WHERE toLower(trim(x)) = toLower(trim(y)))] AS matching_interests
             WITH o, bm, sm, cm, am, matching_interests, (bm + sm + cm + am + size(matching_interests)) AS score
             WHERE score > 0
             RETURN o.id AS id, o.name AS name, o.address AS address, o.interests AS interests,
@@ -204,7 +183,18 @@ class StudentService:
                     address=rec.get("address"),
                     matched_on=matched_fields,
                     matching_interests=matching_interests if matching_interests else None,
-                    same_address=bool(rec.get("address_match"))
+                    same_address=bool(rec.get("address_match")),
                 ))
 
             return recommendations
+
+    def ping(self) -> bool:
+        """Quick DB connectivity check."""
+        try:
+            with self.db.driver.session(database=self.db.database) as session:
+                session.run("RETURN 1").single()
+            return True
+        except Exception:
+            return False
+
+    

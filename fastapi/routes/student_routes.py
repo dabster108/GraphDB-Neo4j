@@ -1,11 +1,12 @@
+
 from fastapi import APIRouter, HTTPException, Form
 from typing import List
 from models.student import StudentCreate, RecommendationResponse, StudentDetail
 from services.student_service import StudentService
 
 router = APIRouter(prefix="/api/v1", tags=["students"])
-
 student_service = StudentService()
+
 
 @router.post("/onboard", response_model=dict)
 async def onboard_student(
@@ -19,15 +20,16 @@ async def onboard_student(
     """
     Onboard a new student to the system.
     Creates a Student node in Neo4j with auto-incremented id.
+    All fields except name are stored as lowercase.
     """
     try:
         student_obj = StudentCreate(
             name=name,
-            address=address,
-            college=college,
-            board=board,
-            stream=stream,
-            interests=interests,
+            address=address.lower() if address else address,
+            college=college.lower() if college else college,
+            board=board.lower() if board else board,
+            stream=stream.lower() if stream else stream,
+            interests=[i.lower() for i in interests] if interests else interests,
         )
         student_id = student_service.save_student(student_obj)
         return {
@@ -80,4 +82,13 @@ async def get_student(student_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching student: {str(e)}")
+
+
+@router.get("/db-check", response_model=dict)
+async def db_check():
+    try:
+        ok = student_service.ping()
+        return {"db_connected": ok}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB check failed: {str(e)}")
 

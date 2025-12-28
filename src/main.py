@@ -24,10 +24,7 @@ app.include_router(router)
 
 @app.on_event("startup")
 async def startup_backfill():
-    flag = str(_os.getenv("BACKFILL_ON_STARTUP", "false")).lower()
-    if flag not in ("1", "true", "yes"):
-        return
-
+    # Always run backfill on startup
     def _backfill():
         script = _os.path.normpath(_os.path.join(_os.path.dirname(__file__), '../fastapi/services/create_relationships.py'))
         try:

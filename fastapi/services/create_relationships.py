@@ -18,7 +18,7 @@ def create_same_college():
     MATCH (a:Student), (b:Student)
     WHERE a.id < b.id
       AND a.college IS NOT NULL
-      AND a.college = b.college
+      AND toLower(trim(a.college)) = toLower(trim(b.college))
     MERGE (a)-[:SAME_COLLEGE]->(b)
     """
     conn = _connect()
@@ -34,7 +34,7 @@ def create_same_board():
     MATCH (a:Student), (b:Student)
     WHERE a.id < b.id
       AND a.board IS NOT NULL
-      AND a.board = b.board
+      AND toLower(trim(a.board)) = toLower(trim(b.board))
     MERGE (a)-[:SAME_BOARD]->(b)
     """
     conn = _connect()
@@ -50,7 +50,7 @@ def create_same_stream():
     MATCH (a:Student), (b:Student)
     WHERE a.id < b.id
       AND a.stream IS NOT NULL
-      AND a.stream = b.stream
+      AND toLower(trim(a.stream)) = toLower(trim(b.stream))
     MERGE (a)-[:SAME_STREAM]->(b)
     """
     conn = _connect()
@@ -66,7 +66,7 @@ def create_nearby():
     MATCH (a:Student), (b:Student)
     WHERE a.id < b.id
       AND a.address IS NOT NULL
-      AND a.address = b.address
+      AND toLower(trim(a.address)) = toLower(trim(b.address))
     MERGE (a)-[:NEARBY]->(b)
     """
     conn = _connect()
@@ -81,9 +81,9 @@ def create_shares_interest():
     q = """
     MATCH (a:Student), (b:Student)
     WHERE a.id < b.id
-      AND any(x IN a.interests WHERE x IN b.interests)
+      AND any(x IN a.interests WHERE any(y IN b.interests WHERE toLower(trim(x)) = toLower(trim(y))))
     MERGE (a)-[r:SHARES_INTEREST]->(b)
-    SET r.common = [x IN a.interests WHERE x IN b.interests]
+    SET r.common = [x IN a.interests WHERE any(y IN b.interests WHERE toLower(trim(x)) = toLower(trim(y)))]
     """
     conn = _connect()
     try:
