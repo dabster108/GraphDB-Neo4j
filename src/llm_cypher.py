@@ -22,23 +22,21 @@ def generate_cypher_query(question: str) -> str:
             "prompt": f"""
 You are an expert Neo4j Cypher developer and graph data modeler. Produce a single valid Cypher query only, no explanation or extra text.
 
-Requirements and rules:
-- Only return one Cypher query. Do NOT add comments, explanations, or markdown.
-- Preserve exact casing for Student `name` property: match `name` by exact equality (e.g. `s.name = "Shristi"`). Do NOT wrap literal names with `toLower()`.
-- If comparing other text properties (college, board, stream), case-insensitive comparisons are acceptable.
-- Always bind relationship variables if you use `type(r)` or relationship properties (e.g. `-[r:TYPE]-`).
-- Avoid guessing specific relationship types when the user asks about relationships; instead prefer a path/property comparison pattern that returns relationship types and property-based comparisons.
+Absolute instructions (do not change behavior elsewhere in the code):
+- Only output one Cypher query. No comments, no prose, no markdown.
+- Preserve exact casing for Student `name` property: always match `name` using exact equality (e.g., s.name = "Shristi"). Never wrap a literal student name with `toLower()`.
+- For other textual properties (`college`, `board`, `stream`), case-insensitive comparison is acceptable.
+- Always bind relationship variables when referencing `type(r)` or relationship properties (e.g., -[r:TYPE]-).
+- Do not invent relationship types; when asked about relationships prefer path-based discovery that returns `type(rel)` and `properties(rel)`.
 
-Additionally: detect when the user is asking about students' relationships even if phrased in natural language. Treat queries that ask about relationships between two students (a two-name relationship query) when they contain phrasing such as:
-"relationship between X and Y", "how are X and Y related", "any connection between X and Y", "common between X and Y", or similar formulations. When such phrasing is present, follow the safe, deterministic two-name relationship query pattern described below.
+Database-first default (NEW — _very strict_):
+- Unless the user explicitly states they are NOT asking about the student database (explicit phrases include: "not database", "not student", "general web", "not neo4j", or similar), assume every query is about the Student Neo4j database and produce a Cypher query accordingly.
+- If the user's input contains a single personal name (single token like "dikshanta" or a multi-word name like "John Doe") and no explicit non-database qualifier, treat it as a request about a `Student` node and produce the SINGLE-STUDENT DETAILS QUERY below.
+- If the user's input contains exactly two distinct personal names, treat it as a two-student relationship question and produce the TWO-NAME RELATIONSHIP QUERY pattern below — replace names verbatim and preserve case.
+- These database-first rules override generic LLM interpretation: default to database lookups for names.
 
-If the user asks a question of the form "relationship between <NameA> and <NameB>", produce a safe, deterministic query that:
-- matches the two students by exact `name` equality
-- OPTIONAL MATCHes any direct relationship or short path between them
-- RETURNS the two nodes, the list of relationship types on any path, relationship properties, and simple boolean or list comparisons for `college`, `board`, `stream`, and `interests`.
-
-Example of the expected pattern to return (follow this format when applicable):
-MATCH (a:Student {{name: "NameA"}}), (b:Student {{name: "NameB"}})
+Two-name relationship pattern (verbatim when applicable):
+MATCH (a:Student {{name: "FirstStudentName"}}), (b:Student {{name: "SecondStudentName"}})
 OPTIONAL MATCH p = (a)-[r]-(b)
 RETURN a AS a, b AS b,
        [rel IN relationships(p) | type(rel)] AS rel_types,
@@ -49,16 +47,23 @@ RETURN a AS a, b AS b,
        [x IN a.interests WHERE x IN b.interests] AS common_interests
 LIMIT 25;
 
-If the question is not a direct two-name relationship question, produce the most appropriate, concise Cypher that answers the user's natural-language query. Always ensure the query is syntactically correct.
-
-Special case — user requests "details" about a student:
-- If the user asks "details about <Name>" or similar, return a concise query that selects the student by exact `name` and returns core properties.
-- Example pattern to use for details requests:
-MATCH (s:Student {{name: "Name"}})
+Single-student details pattern (use when a single name is present):
+MATCH (s:Student {{name: "StudentName"}})
 RETURN s AS student, s.name AS name, s.college AS college, s.board AS board, s.stream AS stream, s.interests AS interests, s.address AS address
 LIMIT 1;
 
-Do NOT include relationships in the details query unless the user explicitly asks for connections/relationships.
+Examples (authoritative):
+Q: who is dikshanta?
+A: (use single-student details pattern with name exactly "dikshanta")
+
+Q: dikshanta
+A: (use single-student details pattern with name exactly "dikshanta")
+
+Q: what is the connection between Umesh and Rohan
+A: (use two-name relationship pattern with names "Umesh" and "Rohan")
+
+Fallback rule:
+- If the input is not a single-name or two-name detected case, produce the most concise, syntactically-correct Cypher that answers the natural-language question while respecting the rules above.
 
 Question:
 {question}
@@ -312,21 +317,21 @@ def main():
         if question.lower() == "exit":
             print("Goodbye!")
             break
+        # Always attempt to generate a Cypher query first (database-first behavior).
+        print("\nUnderstanding your question...")
 
-        # Check if the question is database-related
-        if "student" in question.lower() or "relationship" in question.lower() or "database" in question.lower():
-            print("\nUnderstanding your question...")
+        cypher_query = generate_cypher_query(question)
 
-            cypher_query = generate_cypher_query(question)
+        # Heuristic: treat the generated text as Cypher if it contains a MATCH keyword (case-insensitive).
+        if isinstance(cypher_query, str) and re.search(r"\bMATCH\b", cypher_query, re.IGNORECASE):
             print(f"\nGenerated Cypher Query:\n{cypher_query}")
-
             print("\nExecuting query...")
             result = execute_cypher_query(cypher_query)
             # Send the raw results to the LLM (or local analyzer) and print a single conversational reply
             llm_reply = explain_result_with_llm(question, result)
             print(f"\nChatbot: {llm_reply}")
         else:
-            # Handle normal chat
+            # Fallback to normal chat when the generator did not produce a Cypher query
             print("\nChatbot: Thinking...")
             reply = normal_chat(question)
             print(f"Chatbot: {reply}")
