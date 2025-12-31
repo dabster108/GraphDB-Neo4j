@@ -27,7 +27,10 @@ Requirements and rules:
 - Preserve exact casing for Student `name` property: match `name` by exact equality (e.g. `s.name = "Shristi"`). Do NOT wrap literal names with `toLower()`.
 - If comparing other text properties (college, board, stream), case-insensitive comparisons are acceptable.
 - Always bind relationship variables if you use `type(r)` or relationship properties (e.g. `-[r:TYPE]-`).
-- Avoid guessing specific relationship types when the user asks "relationship between X and Y"; instead prefer a path/property comparison pattern that returns relationship types and property-based comparisons.
+- Avoid guessing specific relationship types when the user asks about relationships; instead prefer a path/property comparison pattern that returns relationship types and property-based comparisons.
+
+Additionally: detect when the user is asking about students' relationships even if phrased in natural language. Treat queries that ask about relationships between two students (a two-name relationship query) when they contain phrasing such as:
+"relationship between X and Y", "how are X and Y related", "any connection between X and Y", "common between X and Y", or similar formulations. When such phrasing is present, follow the safe, deterministic two-name relationship query pattern described below.
 
 If the user asks a question of the form "relationship between <NameA> and <NameB>", produce a safe, deterministic query that:
 - matches the two students by exact `name` equality
