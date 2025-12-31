@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from graphdb import Neo4jConnection
 import requests
+import re
 
 # Load environment variables
 load_dotenv()
@@ -18,38 +19,141 @@ def generate_cypher_query(question: str) -> str:
         # Define the request payload for Ollama
         payload = {
             "model": "llama3.1:8b",
-                        "prompt": f"""
-                        You are an expert Neo4j Cypher developer.
+            "prompt": f"""
+You are an expert Neo4j Cypher developer and graph data modeler. Produce a single valid Cypher query only, no explanation or extra text.
 
-                        Rules:
-                        - Only return a single valid Cypher query.
-                        - Do NOT add explanations, comments or markdown.
-                        - Assume nodes: Student
-                        - Assume relationships: KNOWS, FRIEND_OF, CLASSMATE_OF
-                        - Use the following properties for Student nodes:
-                            - name (string)
-                            - address (optional string)
-                            - college (optional string)
-                            - board (optional string)
-                            - stream (optional string)
-                            - interests (optional list of strings)
-                        - Preserve exact casing when matching by `name`: use exact equality (e.g. `s.name = "Aashish"`). Do NOT call `toLower()` on `name` values.
-                        - For other text properties (address, college, board, stream, interests) use case-insensitive matching with `toLower()` (e.g. `toLower(s.address) = toLower("Kathmandu")` or `toLower(s.interests) CONTAINS toLower("fifa")`).
-                        - Use `OPTIONAL MATCH` when relationships or optional properties are being queried, but ensure the query always ends with an appropriate `RETURN` clause.
-                        - When returning counts use an alias like `AS num_students`.
-                        - When returning names or nodes, return clear fields (e.g. `RETURN s.name` or `RETURN s`).
-                        - Avoid using regex `=~` unless explicitly needed; prefer `toLower() = toLower(...)` or `CONTAINS` for partial matches.
+Requirements and rules:
+- Only return one Cypher query. Do NOT add comments, explanations, or markdown.
+- Preserve exact casing for Student `name` property: match `name` by exact equality (e.g. `s.name = "Shristi"`). Do NOT wrap literal names with `toLower()`.
+- If comparing other text properties (college, board, stream), case-insensitive comparisons are acceptable.
+- Always bind relationship variables if you use `type(r)` or relationship properties (e.g. `-[r:TYPE]-`).
+- Avoid guessing specific relationship types when the user asks "relationship between X and Y"; instead prefer a path/property comparison pattern that returns relationship types and property-based comparisons.
 
-                        Question:
-                        {question}
-                        """,
+If the user asks a question of the form "relationship between <NameA> and <NameB>", produce a safe, deterministic query that:
+- matches the two students by exact `name` equality
+- OPTIONAL MATCHes any direct relationship or short path between them
+- RETURNS the two nodes, the list of relationship types on any path, relationship properties, and simple boolean or list comparisons for `college`, `board`, `stream`, and `interests`.
+
+Example of the expected pattern to return (follow this format when applicable):
+MATCH (a:Student {{name: "NameA"}}), (b:Student {{name: "NameB"}})
+OPTIONAL MATCH p = (a)-[r]-(b)
+RETURN a AS a, b AS b,
+       [rel IN relationships(p) | type(rel)] AS rel_types,
+       [rel IN relationships(p) | properties(rel)] AS rel_props,
+       a.college = b.college AS same_college,
+       a.board = b.board AS same_board,
+       a.stream = b.stream AS same_stream,
+       [x IN a.interests WHERE x IN b.interests] AS common_interests
+LIMIT 25;
+
+If the question is not a direct two-name relationship question, produce the most appropriate, concise Cypher that answers the user's natural-language query. Always ensure the query is syntactically correct.
+
+Special case — user requests "details" about a student:
+- If the user asks "details about <Name>" or similar, return a concise query that selects the student by exact `name` and returns core properties.
+- Example pattern to use for details requests:
+MATCH (s:Student {{name: "Name"}})
+RETURN s AS student, s.name AS name, s.college AS college, s.board AS board, s.stream AS stream, s.interests AS interests, s.address AS address
+LIMIT 1;
+
+Do NOT include relationships in the details query unless the user explicitly asks for connections/relationships.
+
+Question:
+{question}
+""",
             "stream": False
         }
         # Send the HTTP POST request to Ollama
         response = requests.post("http://localhost:11434/api/generate", json=payload)
         response.raise_for_status()  # Raise an error for HTTP issues
         data = response.json()
-        return data.get("response", "I'm sorry, I couldn't generate a Cypher query.")
+        raw = data.get("response", "I'm sorry, I couldn't generate a Cypher query.")
+        # Sanitize and fix common Cypher syntax mistakes emitted by LLMs
+        def sanitize_cypher(q: str) -> str:
+            # Fix patterns where relationships are accidentally wrapped in parentheses like -([r]-> or -([r])- etc.
+            q = re.sub(r"-\(\s*(\[[^\]]+\])\s*->", r"-\1->", q)
+            q = re.sub(r"<-\(\s*(\[[^\]]+\])\s*\)-", r"<-\1-", q)
+            q = re.sub(r"-\(\s*(\[[^\]]+\])\s*\)-", r"-\1-", q)
+            # Remove empty parentheses accidentally placed around relationship variables: ( [r] ) -> [r]
+            q = re.sub(r"\(\s*(\[[^\]]+\])\s*\)", r"\1", q)
+            # Normalize multiple spaces
+            q = re.sub(r"\s+", " ", q).strip()
+            return q
+
+        fixed = sanitize_cypher(raw)
+
+        # Remove toLower(...) wrappers that the LLM may have added around literal names
+        # and around `.name` property access — user wants exact-name matching preserved.
+        # Only rewrite toLower(X.name) -> X.name and toLower("Literal") -> "Literal" (or single-quoted).
+        def preserve_literal_names(q: str) -> str:
+            # toLower(s.name) -> s.name (only for `.name` accessors)
+            q = re.sub(r"toLower\(\s*([A-Za-z_][A-Za-z0-9_]*\.[Nn]ame)\s*\)", r"\1", q)
+            # toLower("Some Name") or toLower('Some Name') -> "Some Name" (preserve original quoting)
+            q = re.sub(r"toLower\(\s*(['\"])(.*?)\1\s*\)", r"\1\2\1", q)
+            return q
+
+        fixed = preserve_literal_names(fixed)
+
+        # Fix incorrect size[list comprehension] usage (should be size([ ... ])).
+        def fix_size_brackets(q: str) -> str:
+            # Replace size[<expr>] with size([<expr>])
+            return re.sub(r"size\s*\[\s*([^\]]+?)\s*\]", r"size([\1])", q)
+
+        fixed = fix_size_brackets(fixed)
+
+        # Further fix: if the query returns relationship types via type(r) but r wasn't bound,
+        # try to bind r to the first relationship pattern, or if the relationship is variable-length,
+        # convert the MATCH into a path `p` and return the list of relationship types.
+        def fix_unbound_relationship_types(q: str) -> str:
+            if "type(" not in q:
+                return q
+            # If r is already bound, nothing to do
+            if re.search(r"\[\s*r\b", q):
+                return q
+
+            q_work = q
+            # Try to bind `r` to the first occurrence of an anonymous relationship pattern
+            # Replace first '<-[:' or '-[:' occurrence
+            if "<-[:" in q_work:
+                q_work = q_work.replace("<-[:", "<-[r:", 1)
+            elif "-[:" in q_work:
+                q_work = q_work.replace("-[:", "-[r:", 1)
+
+            # If the bound relationship is variable-length (contains '*'), use path approach
+            if re.search(r"\[r:[^\]]*\*", q_work):
+                # Ensure MATCH uses a path variable `p =` for the first MATCH occurrence
+                q_work = re.sub(r"\bMATCH\s+", "MATCH p = ", q_work, count=1)
+                # Replace occurrences of `type(r)` with mapping over relationships(p)
+                q_work = re.sub(r"type\(\s*r\s*\)\s+AS\s+(\w+)", r"[rel IN relationships(p) | type(rel)] AS \1", q_work)
+                q_work = re.sub(r"type\(\s*r\s*\)", "[rel IN relationships(p) | type(rel)]", q_work)
+            else:
+                # For simple fixed-length relationship, ensure `type(r)` returns single rel
+                # (we already injected r into pattern above)
+                pass
+
+            return q_work
+
+        fixed2 = fix_unbound_relationship_types(fixed)
+
+        # Preserve exact casing of names as provided by the user in the question.
+        def preserve_user_literal_case(q: str, question_text: str) -> str:
+            # Find all double- or single-quoted literals in the query
+            def replace_match(m):
+                quote = m.group(1)
+                lit = m.group(2)
+                # Search for the literal text in the question (case-insensitive)
+                try:
+                    pat = re.compile(re.escape(lit), flags=re.IGNORECASE)
+                    mm = pat.search(question_text)
+                    if mm:
+                        user_exact = question_text[mm.start():mm.end()]
+                        return f"{quote}{user_exact}{quote}"
+                except Exception:
+                    pass
+                return m.group(0)
+
+            return re.sub(r"(['\"])(.+?)\1", replace_match, q)
+
+        return preserve_user_literal_case(fixed2, question)
     except Exception as e:
         print(f"Error in generate_cypher_query: {e}")
         return "I'm sorry, but I couldn't generate a Cypher query."
@@ -128,13 +232,16 @@ def explain_result_with_llm(question: str, result: list) -> str:
             first = result[0]
             if len(first) == 1:
                 key, value = next(iter(first.items()))
-                if isinstance(value, (int, float)):
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
                     return f"There are {value} students in your database."
             for k, v in first.items():
-                if isinstance(v, (int, float)) or "count" in k.lower():
-                    return f"There are {v} students in your database."
+                # treat numeric counts only (exclude booleans which are subclasses of int)
+                if (isinstance(v, (int, float)) and not isinstance(v, bool)) or "count" in k.lower():
+                    # only return a numeric count; if the value is boolean, skip
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        return f"There are {v} students in your database."
 
-        # Otherwise, call the LLM for a concise conversational explanation
+        # Call the LLM for a concise conversational explanation
         # Format the result compactly
         result_str = repr(result)
         payload = {
@@ -189,6 +296,9 @@ def normal_chat(question: str) -> str:
         return "I'm sorry, but I'm having trouble generating a response right now."
 
 
+
+
+
 def main():
     print("Connected to Neo4j database: neo4j!")
     print("Welcome to the Neo4j Chatbot!")
@@ -203,13 +313,13 @@ def main():
         # Check if the question is database-related
         if "student" in question.lower() or "relationship" in question.lower() or "database" in question.lower():
             print("\nUnderstanding your question...")
+
             cypher_query = generate_cypher_query(question)
             print(f"\nGenerated Cypher Query:\n{cypher_query}")
 
             print("\nExecuting query...")
             result = execute_cypher_query(cypher_query)
-
-            # Send the raw results to the LLM and print a single conversational reply
+            # Send the raw results to the LLM (or local analyzer) and print a single conversational reply
             llm_reply = explain_result_with_llm(question, result)
             print(f"\nChatbot: {llm_reply}")
         else:
