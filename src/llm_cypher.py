@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 from graphdb import Neo4jConnection
 import requests
 import re
+from rapidfuzz import fuzz, process
 
 # Load environment variables
 load_dotenv()
@@ -9,6 +10,51 @@ load_dotenv()
 # Initialize Neo4j connection
 neo4j_conn = Neo4jConnection()
 neo4j_conn.connect()
+
+
+def get_all_student_names() -> list:
+    try:
+        with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
+            result = session.run("MATCH (s:Student) RETURN s.name as name")
+            return [record["name"] for record in result if record["name"]]
+    except Exception as e:
+        print(f"Error fetching student names: {e}")
+        return []
+
+
+def fuzzy_match_student_name(query_name: str, threshold: int = 80) -> str:
+    all_names = get_all_student_names()
+    if not all_names:
+        return query_name
+    
+    result = process.extractOne(query_name.lower(), [n.lower() for n in all_names], scorer=fuzz.ratio)
+    
+    if result and result[1] >= threshold:
+        matched_index = [n.lower() for n in all_names].index(result[0])
+        matched_name = all_names[matched_index]
+        print(f"Fuzzy match: '{query_name}' → '{matched_name}' (score: {result[1]})")
+        return matched_name
+    
+    return query_name
+
+
+def preprocess_question_with_fuzzy_matching(question: str) -> str:
+
+    words = question.split()
+    
+    corrected_words = []
+    for word in words:
+        clean_word = re.sub(r'[^\w\s]', '', word)
+        if len(clean_word) >= 3 and clean_word.lower() not in ['who', 'what', 'where', 'when', 'why', 'how', 'the', 'and', 'are', 'can', 'between', 'about', 'student', 'students', 'connection', 'relationship']:
+            matched_name = fuzzy_match_student_name(clean_word, threshold=75)
+            if matched_name != clean_word:
+                corrected_words.append(word.replace(clean_word, matched_name))
+            else:
+                corrected_words.append(word)
+        else:
+            corrected_words.append(word)
+    
+    return ' '.join(corrected_words)
 
 
 def generate_cypher_query(question: str) -> str:
@@ -24,19 +70,21 @@ You are an expert Neo4j Cypher developer and graph data modeler. Produce a singl
 
 Absolute instructions (do not change behavior elsewhere in the code):
 - Only output one Cypher query. No comments, no prose, no markdown.
-- Preserve exact casing for Student `name` property: always match `name` using exact equality (e.g., s.name = "Shristi"). Never wrap a literal student name with `toLower()`.
+- Student names are stored in lowercase. Always compare names case-insensitively: prefer `toLower(s.name) = toLower("name")` or use a lowercase literal in map patterns.
 - For other textual properties (`college`, `board`, `stream`), case-insensitive comparison is acceptable.
 - Always bind relationship variables when referencing `type(r)` or relationship properties (e.g., -[r:TYPE]-).
 - Do not invent relationship types; when asked about relationships prefer path-based discovery that returns `type(rel)` and `properties(rel)`.
 
-Database-first default (NEW — _very strict_):
-- Unless the user explicitly states they are NOT asking about the student database (explicit phrases include: "not database", "not student", "general web", "not neo4j", or similar), assume every query is about the Student Neo4j database and produce a Cypher query accordingly.
-- If the user's input contains a single personal name (single token like "dikshanta" or a multi-word name like "John Doe") and no explicit non-database qualifier, treat it as a request about a `Student` node and produce the SINGLE-STUDENT DETAILS QUERY below.
-- If the user's input contains exactly two distinct personal names, treat it as a two-student relationship question and produce the TWO-NAME RELATIONSHIP QUERY pattern below — replace names verbatim and preserve case.
-- These database-first rules override generic LLM interpretation: default to database lookups for names.
+Intent handling:
+- If the input is a greeting or small-talk (e.g., "hi", "hello", "hey", "yo", "how are you", "thanks"), do NOT produce any Cypher. Output exactly `CHAT`.
+- If the input asks general capability/meta (e.g., "what can you do", "why need of query", "help", "can we chat", "tell me about yourself"), output exactly `CHAT`.
+- If the input clearly refers to the student database (mentions student-related fields, IDs, relationships) or includes one/two personal names, generate a Cypher query.
+- If the user's input contains a single personal name (single token like "dikshanta" or a multi-word name like "John Doe"), treat it as a request about a `Student` node and produce the SINGLE-STUDENT DETAILS QUERY below.
+- If the user's input contains exactly two distinct personal names, treat it as a two-student relationship question and produce the TWO-NAME RELATIONSHIP QUERY pattern below — match names case-insensitively.
 
-Two-name relationship pattern (verbatim when applicable):
-MATCH (a:Student {{name: "FirstStudentName"}}), (b:Student {{name: "SecondStudentName"}})
+Two-name relationship pattern (case-insensitive):
+MATCH (a:Student), (b:Student)
+WHERE toLower(a.name) = toLower("FirstStudentName") AND toLower(b.name) = toLower("SecondStudentName")
 OPTIONAL MATCH p = (a)-[r]-(b)
 RETURN a AS a, b AS b,
        [rel IN relationships(p) | type(rel)] AS rel_types,
@@ -47,23 +95,36 @@ RETURN a AS a, b AS b,
        [x IN a.interests WHERE x IN b.interests] AS common_interests
 LIMIT 25;
 
-Single-student details pattern (use when a single name is present):
-MATCH (s:Student {{name: "StudentName"}})
+Single-student details pattern (case-insensitive):
+MATCH (s:Student)
+WHERE toLower(s.name) = toLower("StudentName")
 RETURN s AS student, s.name AS name, s.college AS college, s.board AS board, s.stream AS stream, s.interests AS interests, s.address AS address
 LIMIT 1;
 
 Examples (authoritative):
 Q: who is dikshanta?
-A: (use single-student details pattern with name exactly "dikshanta")
+A: (use single-student details pattern with name case-insensitive match "dikshanta")
 
 Q: dikshanta
-A: (use single-student details pattern with name exactly "dikshanta")
+A: (use single-student details pattern with name case-insensitive match "dikshanta")
 
 Q: what is the connection between Umesh and Rohan
-A: (use two-name relationship pattern with names "Umesh" and "Rohan")
+A: (use two-name relationship pattern with names "Umesh" and "Rohan" using case-insensitive matching)
+
+Q: hi
+A: CHAT
+
+Q: hello
+A: CHAT
+
+Q: what can you do?
+A: CHAT
+
+Q: why need of query
+A: CHAT
 
 Fallback rule:
-- If the input is not a single-name or two-name detected case, produce the most concise, syntactically-correct Cypher that answers the natural-language question while respecting the rules above.
+- If the input is not a single-name or two-name detected case, produce the most concise, syntactically-correct Cypher that answers the natural-language question while respecting the rules above. If the input is casual chat, return `CHAT`.
 
 Question:
 {question}
@@ -75,6 +136,17 @@ Question:
         response.raise_for_status()  # Raise an error for HTTP issues
         data = response.json()
         raw = data.get("response", "I'm sorry, I couldn't generate a Cypher query.")
+        
+        # Strip markdown code blocks (```, ```cypher, etc.)
+        def strip_markdown_code_blocks(text: str) -> str:
+            # Remove opening code fence (```cypher, ```sql, or just ```)
+            text = re.sub(r'^```(?:cypher|sql)?\s*\n?', '', text.strip(), flags=re.MULTILINE)
+            # Remove closing code fence
+            text = re.sub(r'\n?```\s*$', '', text.strip(), flags=re.MULTILINE)
+            return text.strip()
+        
+        raw = strip_markdown_code_blocks(raw)
+        
         # Sanitize and fix common Cypher syntax mistakes emitted by LLMs
         def sanitize_cypher(q: str) -> str:
             # Fix patterns where relationships are accidentally wrapped in parentheses like -([r]-> or -([r])- etc.
@@ -89,17 +161,26 @@ Question:
 
         fixed = sanitize_cypher(raw)
 
-        # Remove toLower(...) wrappers that the LLM may have added around literal names
-        # and around `.name` property access — user wants exact-name matching preserved.
-        # Only rewrite toLower(X.name) -> X.name and toLower("Literal") -> "Literal" (or single-quoted).
-        def preserve_literal_names(q: str) -> str:
-            # toLower(s.name) -> s.name (only for `.name` accessors)
-            q = re.sub(r"toLower\(\s*([A-Za-z_][A-Za-z0-9_]*\.[Nn]ame)\s*\)", r"\1", q)
-            # toLower("Some Name") or toLower('Some Name') -> "Some Name" (preserve original quoting)
-            q = re.sub(r"toLower\(\s*(['\"])(.*?)\1\s*\)", r"\1\2\1", q)
+        # Ensure case-insensitive matching for Student name comparisons and lowercase literals
+        def enforce_case_insensitive_name_matching(q: str) -> str:
+            # s.name = "Literal" -> toLower(s.name) = toLower("literal")
+            def eq_repl(m):
+                prop = m.group(1)
+                quote = m.group(2)
+                lit = m.group(3)
+                return f"toLower({prop}) = toLower({quote}{lit.lower()}{quote})"
+            q = re.sub(r"([A-Za-z_][A-Za-z0-9_]*\.[Nn]ame)\s*=\s*(['\"])(.+?)\2", eq_repl, q)
+
+            # MATCH (s:Student {name: "Literal"}) -> lower the literal only
+            def map_repl(m):
+                prefix = m.group(1)
+                quote = m.group(2)
+                lit = m.group(3)
+                return f"{prefix}{quote}{lit.lower()}{quote}"
+            q = re.sub(r"(\{[^}]*\bname\s*:\s*)(['\"])(.+?)\2", map_repl, q)
             return q
 
-        fixed = preserve_literal_names(fixed)
+        fixed = enforce_case_insensitive_name_matching(fixed)
 
         # Fix incorrect size[list comprehension] usage (should be size([ ... ])).
         def fix_size_brackets(q: str) -> str:
@@ -142,26 +223,7 @@ Question:
 
         fixed2 = fix_unbound_relationship_types(fixed)
 
-        # Preserve exact casing of names as provided by the user in the question.
-        def preserve_user_literal_case(q: str, question_text: str) -> str:
-            # Find all double- or single-quoted literals in the query
-            def replace_match(m):
-                quote = m.group(1)
-                lit = m.group(2)
-                # Search for the literal text in the question (case-insensitive)
-                try:
-                    pat = re.compile(re.escape(lit), flags=re.IGNORECASE)
-                    mm = pat.search(question_text)
-                    if mm:
-                        user_exact = question_text[mm.start():mm.end()]
-                        return f"{quote}{user_exact}{quote}"
-                except Exception:
-                    pass
-                return m.group(0)
-
-            return re.sub(r"(['\"])(.+?)\1", replace_match, q)
-
-        return preserve_user_literal_case(fixed2, question)
+        return fixed2
     except Exception as e:
         print(f"Error in generate_cypher_query: {e}")
         return "I'm sorry, but I couldn't generate a Cypher query."
@@ -288,15 +350,25 @@ def normal_chat(question: str) -> str:
     Handle normal chatbot conversations using a local Ollama model.
     """
     try:
-        # Define the request payload for Ollama
         payload = {
             "model": "llama3.1:8b",
-            "prompt": f"You are a friendly chatbot. Answer this: {question}",
+            "prompt": f"""
+You are a friendly chatbot.
+
+Rules:
+- If the user's message is a greeting like "hi", "hello", or "hey", respond exactly:
+  Hi there! How's your day going so far? Is there something I can help you with or would you like to just have a friendly conversation?
+- Otherwise, reply naturally, be concise (one or two sentences), and offer help.
+
+User:
+{question}
+
+Reply:
+""",
             "stream": False
         }
-        # Send the HTTP POST request to Ollama
         response = requests.post("http://localhost:11434/api/generate", json=payload)
-        response.raise_for_status()  # Raise an error for HTTP issues
+        response.raise_for_status()
         data = response.json()
         return data.get("response", "I'm sorry, I couldn't generate a response.")
     except Exception as e:
@@ -311,16 +383,23 @@ def main():
     print("Connected to Neo4j database: neo4j!")
     print("Welcome to the Neo4j Chatbot!")
     print("Ask about student relationships or have a casual chat (type 'exit' to quit).")
+    print("🔍 Fuzzy search enabled - typos in names will be auto-corrected!\n")
 
     while True:
         question = input("\nYour Question: ")
         if question.lower() == "exit":
             print("Goodbye!")
             break
+        
+        # Preprocess the question with fuzzy name matching
+        corrected_question = preprocess_question_with_fuzzy_matching(question)
+        if corrected_question != question:
+            print(f"💡 Understood as: {corrected_question}")
+        
         # Always attempt to generate a Cypher query first (database-first behavior).
         print("\nUnderstanding your question...")
 
-        cypher_query = generate_cypher_query(question)
+        cypher_query = generate_cypher_query(corrected_question)
 
         # Heuristic: treat the generated text as Cypher if it contains a MATCH keyword (case-insensitive).
         if isinstance(cypher_query, str) and re.search(r"\bMATCH\b", cypher_query, re.IGNORECASE):

@@ -35,3 +35,9 @@ class StudentDetail(BaseModel):
     stream: Optional[str] = None
     interests: Optional[List[str]] = None
 
+
+class FuzzySearchResponse(BaseModel):
+    results: List[StudentDetail]
+    query: str
+    total_found: int
+

@@ -20,11 +20,11 @@ async def onboard_student(
     """
     Onboard a new student to the system.
     Creates a Student node in Neo4j with auto-incremented id.
-    All fields except name are stored as lowercase.
+    All fields (including name) are stored as lowercase.
     """
     try:
         student_obj = StudentCreate(
-            name=name,
+            name=name.lower() if name else name,
             address=address.lower() if address else address,
             college=college.lower() if college else college,
             board=board.lower() if board else board,
@@ -91,4 +91,7 @@ async def db_check():
         return {"db_connected": ok}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB check failed: {str(e)}")
+
+
+ 
 

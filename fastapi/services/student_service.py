@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src'))
 from graphdb import Neo4jConnection
 from typing import List, Optional
 from models.student import StudentCreate, StudentResponse, StudentDetail
+from rapidfuzz import fuzz
 
 
 class StudentService:
@@ -197,4 +198,70 @@ class StudentService:
         except Exception:
             return False
 
+    def sync_lowercase_students(self) -> int:
+        """
+        Lowercase all relevant fields for all Student nodes.
+        Returns the number of student nodes processed.
+        """
+        with self.db.driver.session(database=self.db.database) as session:
+            result = session.run(
+                """
+                MATCH (s:Student)
+                SET s.name    = CASE WHEN s.name    IS NULL THEN NULL ELSE toLower(s.name)    END,
+                    s.address = CASE WHEN s.address IS NULL THEN NULL ELSE toLower(s.address) END,
+                    s.college = CASE WHEN s.college IS NULL THEN NULL ELSE toLower(s.college) END,
+                    s.board   = CASE WHEN s.board   IS NULL THEN NULL ELSE toLower(s.board)   END,
+                    s.stream  = CASE WHEN s.stream  IS NULL THEN NULL ELSE toLower(s.stream)  END,
+                    s.interests = [x IN coalesce(s.interests, []) | toLower(x)]
+                RETURN count(s) AS processed
+                """
+            )
+            rec = result.single()
+            return rec["processed"] if rec else 0
     
+    def fuzzy_search_students(self, query: str, threshold: int = 70, limit: int = 10) -> List[StudentDetail]:
+        """
+        Fuzzy search for students by name.
+        Args:
+            query: The search query (e.g., 'dikshantass' or 'rebant')
+            threshold: Minimum similarity score (0-100). Default is 70.
+            limit: Maximum number of results to return. Default is 10.
+        Returns:
+            List of students matching the fuzzy search, sorted by similarity score.
+        """
+        query_lower = query.lower().strip()
+        
+        with self.db.driver.session(database=self.db.database) as session:
+            # Get all students
+            result = session.run(
+                """
+                MATCH (s:Student)
+                RETURN s.id as id, s.name as name, s.address as address,
+                       s.college as college, s.board as board, s.stream as stream,
+                       s.interests as interests
+                """
+            )
+            
+            students_with_scores = []
+            for record in result:
+                student_name = record["name"] or ""
+                score = fuzz.ratio(query_lower, student_name.lower())
+                
+                if score >= threshold:
+                    students_with_scores.append({
+                        "student": StudentDetail(
+                            id=record["id"],
+                            name=record["name"],
+                            address=record.get("address"),
+                            college=record.get("college"),
+                            board=record.get("board"),
+                            stream=record.get("stream"),
+                            interests=record.get("interests") or [],
+                        ),
+                        "score": score
+                    })
+            
+            # Sort by score descending and limit results
+            students_with_scores.sort(key=lambda x: x["score"], reverse=True)
+            return [item["student"] for item in students_with_scores[:limit]]
+
